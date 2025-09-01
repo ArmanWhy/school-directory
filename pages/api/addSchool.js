@@ -7,16 +7,28 @@ import { db } from "../../lib/db";
 export const config = { api: { bodyParser: false } };
 
 export default async function handler(req, res) {
-  if (req.method !== "POST") return res.status(405).json({ message: "Method not allowed" });
+  if (req.method !== "POST") {
+    return res.status(405).json({ message: "Method not allowed" });
+  }
 
   try {
     const uploadDir = path.join(process.cwd(), "public/schoolImages");
     if (!fs.existsSync(uploadDir)) fs.mkdirSync(uploadDir, { recursive: true });
 
-    const form = formidable({ uploadDir, keepExtensions: true, multiples: false });
+    const form = formidable({
+      uploadDir,
+      keepExtensions: true,
+      multiples: false,
+    });
 
     form.parse(req, async (err, fields, files) => {
-      if (err) return res.status(500).json({ error: err.message });
+      if (err) {
+        console.error("Form parse error:", err);
+        return res.status(500).json({ error: "Form parsing failed", details: err.message });
+      }
+
+      console.log("Form fields received:", fields);
+      console.log("Files received:", files);
 
       const { name, address, city, state, contact, email_id } = fields;
 
@@ -28,11 +40,16 @@ export default async function handler(req, res) {
         const fileName = `${Date.now()}${fileExt}`;
         const newPath = path.join(uploadDir, fileName);
 
-        fs.renameSync(uploadedFile.filepath, newPath);
-
-        // Save the URL path that works in UI
-        image = `/schoolImages/${fileName}`;
+        try {
+          fs.renameSync(uploadedFile.filepath, newPath);
+          image = `/schoolImages/${fileName}`;
+        } catch (fileError) {
+          console.error("File rename error:", fileError);
+          return res.status(500).json({ error: "File upload failed", details: fileError.message });
+        }
       }
+
+      console.log("Inserting school into DB:", { name, address, city, state, contact, email_id, image });
 
       try {
         await db.query(
@@ -41,7 +58,7 @@ export default async function handler(req, res) {
         );
         res.status(200).json({ message: "School added successfully" });
       } catch (dbError) {
-        console.error("DB insert error:", dbError);
+        console.error("DB insert error:", dbError, "Query values:", [name, address, city, state, contact, email_id, image]);
         res.status(500).json({ error: dbError.message });
       }
     });
